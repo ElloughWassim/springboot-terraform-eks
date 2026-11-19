@@ -1,0 +1,7 @@
+# Copy to backend.hcl (git-ignored) or store it as a Jenkins "Secret file" credential.
+# Create the bucket once, with versioning and encryption enabled.
+bucket       = "<TERRAFORM_STATE_BUCKET>"
+key          = "springboot-terraform-eks/terraform.tfstate"
+region       = "<AWS_REGION>"
+encrypt      = true
+use_lockfile = true

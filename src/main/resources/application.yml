@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: springboot-terraform-eks
+
+server:
+  port: 8080
+  # Finish in-flight requests when Kubernetes sends SIGTERM.
+  shutdown: graceful
+
+app:
+  data:
+    # Defaults for local runs; overridden in Kubernetes by the ConfigMap (k8s/10-configmap.yaml).
+    name: local
+    value: default-value
+    place: localhost
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      # Exposes /actuator/health/liveness and /actuator/health/readiness for Kubernetes probes.
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: false

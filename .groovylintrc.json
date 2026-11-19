@@ -1,0 +1,9 @@
+{
+  "extends": "recommended",
+  "rules": {
+    "CompileStatic": "off",
+    "UnusedVariable": {
+      "ignoreVariableNames": "_"
+    }
+  }
+}

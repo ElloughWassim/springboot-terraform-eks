@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (git-ignored) or store it as a Jenkins "Secret file" credential.
+aws_region   = "eu-west-1"
+cluster_name = "springboot-demo-eks"
+
+# Existing private subnets of your VPC, in at least two Availability Zones.
+subnet_ids = ["<SUBNET_ID_AZ_A>", "<SUBNET_ID_AZ_B>"]
+
+# The API endpoint is private by default (Jenkins must run inside the VPC).
+# To reach it from outside, enable public access for specific addresses only:
+# endpoint_public_access       = true
+# endpoint_public_access_cidrs = ["<JENKINS_PUBLIC_IP>/32"]
+
+node_instance_types = ["t3.medium"]

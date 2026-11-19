@@ -1,0 +1,19 @@
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.properties
+# IDE
+.idea/
+*.iml
+.vscode/
+# OS
+.DS_Store
+# Terraform: state, plans, local variables and provider cache must never be committed
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+terraform/terraform.tfvars
+terraform/backend.hcl
+# Pipeline output
+reports/
+.k8s-rendered/
