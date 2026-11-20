@@ -1,82 +1,111 @@
 # Spring Boot on Amazon EKS with Jenkins and Terraform
 
-[![CI](https://github.com/ElloughWassim/springboot-terraform-eks/actions/workflows/ci.yml/badge.svg)](https://github.com/ElloughWassim/springboot-terraform-eks/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
 An end-to-end delivery project: a small Spring Boot REST service is tested, analysed, containerised, scanned
-and deployed to an Amazon EKS cluster that is itself provisioned with Terraform. The whole flow runs in a
-Jenkins pipeline built on the [`jenkins-pipeline-library`](https://github.com/ElloughWassim/jenkins-pipeline-library).
+and deployed to an Amazon EKS cluster provisioned with Terraform. The delivery flow runs in a Jenkins
+pipeline built on the `jenkins-pipeline-library` shared library (`v1.0.0`).
 
-## Project overview
+## Table of Contents
 
-The application is intentionally simple. The point of the project is the delivery chain around it:
+- [Project Overview](#project-overview)
+- [Key Features](#key-features)
+- [Architecture Overview](#architecture-overview)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Installation and Configuration](#installation-and-configuration)
+- [Execution and Deployment](#execution-and-deployment)
+- [Testing and Validation](#testing-and-validation)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Security Implementation](#security-implementation)
+- [License](#license)
+- [Author](#author)
 
-| Layer | What it demonstrates |
+## Project Overview
+
+The application is intentionally simple. The focus of the project is the delivery chain around it.
+
+| Layer | Implementation |
 |---|---|
-| Application | Spring Boot 4.1 on Java 21, externalised configuration, health probes, graceful shutdown |
-| Tests | Fast unit tests (Surefire) and HTTP integration tests on a random port (Failsafe) |
+| Application | Spring Boot 4.1 on Java 21, externalised configuration, Actuator health probes, graceful shutdown |
+| Tests | Unit tests (Surefire) and HTTP integration tests on a random port (Failsafe) |
 | Container | Multi-stage, layered, non-root image with a health check |
-| Kubernetes | Restricted Pod Security, read-only root filesystem, probes, resource requests, zero-downtime rolling updates |
-| Infrastructure | Terraform: EKS with KMS-encrypted secrets, control-plane logging, access entries, private API by default, managed node group, immutable ECR repository |
-| CI/CD | Jenkins: SonarQube gate, OWASP Dependency-Check, Trivy (fs, IaC, image), ECR or Docker Hub push, approved Terraform plans, rollout with automatic rollback |
+| Kubernetes | `restricted` Pod Security Standard, read-only root filesystem, probes, resource requests and limits, rolling updates with `maxUnavailable: 0` |
+| Infrastructure | Terraform: EKS with KMS-encrypted secrets, control-plane logging, access entries, private API endpoint by default, managed node group, immutable ECR repository |
+| CI/CD | Jenkins: SonarQube Quality Gate, OWASP Dependency-Check, Trivy (fs, IaC, image), ECR or Docker Hub push, reviewed and approved Terraform plans, rollout with automatic rollback |
 
-## Main features
+## Key Features
 
-- `GET /home/data` returns configuration-driven data. Values come from a Kubernetes ConfigMap.
+- `GET /home/data` returns configuration-driven data. In Kubernetes, the values come from a ConfigMap.
 - `/actuator/health/liveness` and `/actuator/health/readiness` serve the Kubernetes probes.
 - One pipeline parameter switches the registry between **Amazon ECR** and **Docker Hub**.
-- Terraform changes are planned, archived for review and applied only after manual approval.
+- Terraform changes are planned, archived as `tfplan.txt` for review and applied only after manual approval.
 - Every build produces an immutable image tag `<build number>-<git sha>`.
 
-## Technologies and tools
-
-Java 21 · Spring Boot 4.1 · Maven (Wrapper) · JUnit 5 · Docker · Kubernetes · Amazon EKS · Amazon ECR ·
-Terraform · Jenkins · SonarQube · OWASP Dependency-Check · Trivy · GitHub Actions · Dependabot
-
-## Architecture overview
+## Architecture Overview
 
 ```mermaid
 flowchart LR
-    Dev[Developer] -->|git push| GH[GitHub]
-    GH -->|webhook| J[Jenkins<br/>jenkins-pipeline-library]
-    J -->|analysis + gate| SQ[SonarQube]
-    J -->|scan| TR[Trivy / OWASP DC]
+    Dev[Developer] -->|git push| GH[GitHub repository]
+    GH -->|checkout| J[Jenkins<br/>jenkins-pipeline-library]
+    J -->|analysis + Quality Gate| SQ[SonarQube]
+    J -->|scans| TR[Trivy · OWASP Dependency-Check]
     J -->|push image| REG[(Amazon ECR<br/>or Docker Hub)]
-    J -->|plan / apply| TF[Terraform]
+    J -->|plan · approval · apply| TF[Terraform]
     TF --> EKS[Amazon EKS<br/>managed node group]
     J -->|kubectl apply + rollout| EKS
     REG -->|pull| EKS
-    EKS --> LB[AWS Load Balancer] --> User[Client]
+    EKS --> LB[Service type LoadBalancer<br/>AWS load balancer] --> User[Client]
 ```
 
-## Repository structure
+## Technology Stack
 
-```
+| Area | Tools |
+|---|---|
+| Application | Java 21, Spring Boot 4.1 (Web MVC, Actuator) |
+| Build and tests | Maven Wrapper (Maven 3.9.16), JUnit Jupiter, AssertJ, Surefire, Failsafe |
+| Container | Docker (BuildKit), Eclipse Temurin 21 base images |
+| Infrastructure | Terraform, AWS provider `~> 6.0`, Amazon EKS, Amazon ECR, AWS KMS, S3 remote state |
+| Orchestration | Kubernetes |
+| CI/CD | Jenkins, GitHub Actions, Dependabot |
+| Quality and security | SonarQube, OWASP Dependency-Check, Trivy, kubeconform, Gitleaks |
+
+## Project Structure
+
+```text
 .
 ├── src/main/java/io/github/elloughwassim/eksdemo/
 │   ├── EksDemoApplication.java     # Entry point
 │   ├── AppDataProperties.java      # app.data.* configuration (record)
 │   └── HomeController.java         # GET /home/data
 ├── src/main/resources/application.yml
-├── src/test/java/.../              # *Test = unit (Surefire), *IT = integration (Failsafe)
-├── k8s/                            # Namespace, ConfigMap, Deployment, Service (applied in order)
-├── terraform/                      # EKS cluster, node group, IAM, KMS, ECR
+├── src/test/java/io/github/elloughwassim/eksdemo/
+│   ├── HomeControllerTest.java     # Unit test (Surefire)
+│   ├── EksDemoApplicationTest.java # Spring context test (Surefire)
+│   └── HomeEndpointIT.java         # HTTP integration test (Failsafe)
+├── k8s/                            # 00-namespace, 10-configmap, 20-deployment, 30-service
+├── terraform/                      # EKS cluster, node group, IAM, KMS, ECR, S3 backend
 ├── Dockerfile                      # Multi-stage, layered, non-root
 ├── Jenkinsfile                     # Delivery pipeline (uses the shared library)
-├── .github/workflows/ci.yml        # Build, tests, image smoke test, Trivy, Terraform, kubeconform, gitleaks
-└── mvnw, .mvn/                     # Maven Wrapper 3.3.4 → Maven 3.9.16
+├── .github/workflows/ci.yml        # Build, tests, image smoke test, Trivy, Terraform, kubeconform, Gitleaks
+├── .github/dependabot.yml
+├── .trivyignore                    # Single documented exception
+└── mvnw, mvnw.cmd, .mvn/           # Maven Wrapper 3.3.4 → Maven 3.9.16
 ```
 
 ## Prerequisites
 
-| For | You need |
+| For | Requirement |
 |---|---|
-| Local build | JDK 21+ (Maven is downloaded by the wrapper) |
-| Container | Docker 24+ with BuildKit |
-| Infrastructure | Terraform 1.6+ (or OpenTofu), AWS account, an existing VPC with two private subnets, an S3 bucket for state |
-| Pipeline | Jenkins with the plugins listed in [CI/CD pipeline](#cicd-pipeline) |
+| Local build | JDK 21 or newer (Maven is downloaded by the wrapper; the build enforces Java 21+ and Maven 3.9+) |
+| Container | Docker with BuildKit enabled (the Dockerfile uses `RUN --mount=type=cache`) |
+| Infrastructure | Terraform, an AWS account, an existing VPC with at least two private subnets in different Availability Zones, an S3 bucket for the remote state |
+| Pipeline | Jenkins with the plugins, tools and credentials listed in [CI/CD Pipeline](#cicd-pipeline) |
 
-## Installation
+> **Terraform version.** `versions.tf` declares `>= 1.6.0`, but `backend.hcl.example` enables S3 native
+> locking (`use_lockfile = true`), which older Terraform releases do not support. Use a Terraform release that
+> supports `use_lockfile` (1.11 or newer recommended), or remove that line from your `backend.hcl`.
+
+## Installation and Configuration
 
 ```bash
 git clone https://github.com/ElloughWassim/springboot-terraform-eks.git
@@ -84,19 +113,38 @@ cd springboot-terraform-eks
 ./mvnw -B verify          # compile, unit tests, integration tests, package
 ```
 
-## Configuration
+### Application configuration
 
-| Property | Environment variable | Default (local) | Kubernetes value |
+| Property | Environment variable | Local default | Kubernetes value (`k8s/10-configmap.yaml`) |
 |---|---|---|---|
 | `app.data.name` | `APP_DATA_NAME` | `local` | `springboot-demo` |
 | `app.data.value` | `APP_DATA_VALUE` | `default-value` | `deployed-by-jenkins` |
 | `app.data.place` | `APP_DATA_PLACE` | `localhost` | `amazon-eks` |
 
-Kubernetes values live in `k8s/10-configmap.yaml`. Infrastructure values live in `terraform/terraform.tfvars`
-(copy `terraform.tfvars.example`) and `terraform/backend.hcl` (copy `backend.hcl.example`). Both files are
-git-ignored.
+### Infrastructure configuration
 
-## How to run the project
+| File | Source | Content |
+|---|---|---|
+| `terraform/terraform.tfvars` | copy of `terraform.tfvars.example` | Region, cluster name, subnet IDs, node instance types, optional public endpoint CIDRs |
+| `terraform/backend.hcl` | copy of `backend.hcl.example` | S3 bucket, state key, region, encryption, locking |
+
+Both files are git-ignored. In Jenkins they are provided as *Secret file* credentials.
+
+Main Terraform variables (defaults from `variables.tf`):
+
+| Variable | Default |
+|---|---|
+| `aws_region` | `eu-west-1` |
+| `cluster_name` | `springboot-demo-eks` |
+| `kubernetes_version` | `1.36` |
+| `subnet_ids` | required, at least two |
+| `endpoint_public_access` | `false` |
+| `node_instance_types` | `["t3.medium"]` |
+| `node_desired_size` / `node_min_size` / `node_max_size` | `2` / `1` / `3` |
+| `create_ecr_repository` | `true` |
+| `ecr_repository_name` | `springboot-terraform-eks` |
+
+## Execution and Deployment
 
 ```bash
 # 1. Plain Java
@@ -120,7 +168,10 @@ terraform plan -out=tfplan && terraform apply tfplan
 aws eks update-kubeconfig --region <AWS_REGION> --name springboot-demo-eks
 ```
 
-## How to execute tests
+The Kubernetes API endpoint is private by default, so `kubectl` must run from inside the VPC unless
+`endpoint_public_access` is enabled for specific CIDR blocks.
+
+## Testing and Validation
 
 ```bash
 ./mvnw test                         # unit tests only
@@ -128,71 +179,88 @@ aws eks update-kubeconfig --region <AWS_REGION> --name springboot-demo-eks
 ./mvnw verify -DskipUTs=true        # integration tests only (what the Jenkins stage runs)
 ```
 
-## CI/CD pipeline
+| Test | Type | What it checks |
+|---|---|---|
+| `HomeControllerTest` | Unit | Controller output without a Spring context |
+| `EksDemoApplicationTest` | Unit (Spring context) | Context startup and `app.data.*` binding |
+| `HomeEndpointIT` | Integration | `GET /home/data` and both health probes over HTTP on a random port |
+
+## CI/CD Pipeline
 
 ### Jenkins (`Jenkinsfile`)
 
-```
+```text
 Unit tests → Integration tests → SonarQube → Quality gate → OWASP Dependency-Check → Trivy fs → Trivy IaC
   → Docker build → Trivy image → Push (ECR | Docker Hub)
-  → [Terraform plan → manual approval → apply]   (PROVISION_INFRA or destroy-infrastructure)
+  → [Terraform plan → manual approval → apply]     (PROVISION_INFRA=true, or ACTION=destroy-infrastructure)
   → Deploy to EKS (render image, apply, rollout status, automatic rollback)
 ```
 
 | Parameter | Values |
 |---|---|
-| `ACTION` | `build-and-deploy`, `build-only`, `destroy-infrastructure` |
-| `REGISTRY` | `ecr` (immutable tags) or `dockerhub` (`latest` also pushed) |
-| `PROVISION_INFRA` | run Terraform before deploying |
+| `ACTION` | `build-and-deploy`, `build-only` (stops after the push), `destroy-infrastructure` (Terraform `plan -destroy` + approval + apply) |
+| `REGISTRY` | `ecr` (only the immutable tag is pushed) or `dockerhub` (`latest` is also pushed) |
+| `PROVISION_INFRA` | Run Terraform plan/apply before deploying (with `build-and-deploy`) |
 
-**Jenkins setup:**
+**Jenkins setup**
 
-- **Plugins:** Pipeline, Git, Credentials Binding, Pipeline: AWS Steps (or CloudBees AWS Credentials), SonarQube Scanner,
+- **Plugins:** Pipeline, Git, Credentials Binding, Pipeline: AWS Steps (or AWS Credentials), SonarQube Scanner,
   OWASP Dependency-Check, JUnit, Timestamper.
-- **Agent tools:** JDK 21, Docker, Trivy, AWS CLI v2, Terraform ≥ 1.6, kubectl.
-- **Tools / servers:** SonarQube server named `sonarqube` (with a webhook to `<JENKINS_URL>/sonarqube-webhook/`).
-  Dependency-Check installation named `dependency-check`.
-- **Shared library:** `jenkins-pipeline-library` (see its README).
-- **Credentials:**
+- **Agent tools:** JDK 21, Docker, Trivy, AWS CLI v2, Terraform, kubectl.
+- **Servers and tools:** a SonarQube server named `sonarqube` with a webhook to
+  `<JENKINS_URL>/sonarqube-webhook/`, and a Dependency-Check installation named `dependency-check`.
+- **Shared library:** `jenkins-pipeline-library`, pinned to `v1.0.0`.
+- **Environment:** replace `<AWS_ACCOUNT_ID>` and `<DOCKERHUB_NAMESPACE>` in the `environment` block of the
+  `Jenkinsfile` (or define them globally in Jenkins). Unreplaced placeholders fail the library's validation.
 
-| Id | Kind | Purpose |
+| Credential ID | Kind | Purpose |
 |---|---|---|
 | `aws-credentials` | AWS Credentials | ECR push, Terraform, `aws eks update-kubeconfig` |
-| `dockerhub-credentials` | Username + access token | Docker Hub push |
-| `nvd-api-key` | Secret text | Faster NVD updates for Dependency-Check |
+| `dockerhub-credentials` | Username with password (access token) | Docker Hub push |
+| `nvd-api-key` | Secret text | NVD API key for Dependency-Check |
 | `terraform-backend-hcl` | Secret file | Content of `backend.hcl` |
 | `terraform-tfvars` | Secret file | Content of `terraform.tfvars` |
 
-Replace `<AWS_ACCOUNT_ID>` and `<DOCKERHUB_NAMESPACE>` in the `environment` block of the `Jenkinsfile`
-(or define them globally in Jenkins). The library rejects unreplaced placeholders with a clear error.
-
-The IAM identity behind `aws-credentials` must also be granted access to the cluster (an EKS access entry).
-The identity that creates the cluster gets admin access automatically.
+The IAM identity behind `aws-credentials` must have access to the cluster. Terraform grants admin access to
+the identity that creates the cluster (`bootstrap_cluster_creator_admin_permissions = true`); any other
+identity needs an EKS access entry.
 
 ### GitHub Actions (`.github/workflows/ci.yml`)
 
-These checks need no cloud credentials: Maven verify, Docker build + smoke test, Trivy image/fs/IaC scans,
-`terraform fmt`/`validate`, kubeconform and gitleaks.
+Runs on pushes to `main` and on pull requests, without cloud credentials:
 
-## Security considerations
+| Job | Checks |
+|---|---|
+| Maven build and tests | `./mvnw -B -ntp verify`, test reports uploaded as artifacts |
+| Docker image and Trivy scans | Image build, smoke test (`/actuator/health/readiness`, `/home/data`), Trivy image scan (fixable HIGH/CRITICAL), Trivy fs scan (vulnerabilities, secrets, misconfigurations, MEDIUM and above) |
+| Terraform and Kubernetes validation | `terraform fmt -check`, `terraform validate`, kubeconform on `k8s/` |
+| Secret scan | Gitleaks over the full history |
 
-- No credentials are stored in the repository, Terraform variables or state. AWS access comes from the
-  environment (Jenkins credential, instance role or OIDC). Account-specific values are git-ignored files.
-- The Kubernetes API endpoint is **private by default**. Public access requires an explicit CIDR allowlist
-  (`0.0.0.0/0` is rejected).
-- EKS secrets are encrypted with a customer-managed, rotating KMS key. All control-plane log types are enabled.
-- ECR tags are immutable, scanned on push and expire after 30 images.
-- Pods run as UID 10001 with no privilege escalation, all capabilities dropped, a read-only root filesystem,
-  the `RuntimeDefault` seccomp profile and no service-account token. The namespace enforces the `restricted`
-  Pod Security Standard.
-- Trivy and the SonarQube gate fail the pipeline on findings. `.trivyignore` documents the only accepted exception.
-- `terraform destroy` keeps the ECR repository if it still contains images (`force_delete = false`).
-  Delete the images first if you really want it removed.
+Dependabot checks Maven, Docker, Terraform and GitHub Actions dependencies weekly.
 
-## License and attribution
+## Security Implementation
 
+- **No credentials in the repository.** The AWS provider reads credentials from the environment (Jenkins
+  credential, instance role or OIDC). Account-specific Terraform files are git-ignored.
+- **Private API endpoint by default.** Public access requires an explicit CIDR allowlist, and `0.0.0.0/0` is
+  rejected by variable validation.
+- **EKS hardening.** Secrets are encrypted with a customer-managed KMS key with rotation enabled. All
+  control-plane log types are enabled. Access uses EKS access entries (`authentication_mode = "API"`).
+- **ECR.** Immutable tags, scan on push, KMS encryption, lifecycle policy keeping the 30 most recent images.
+- **Pod security.** UID 10001, `runAsNonRoot`, no privilege escalation, all capabilities dropped, read-only
+  root filesystem (`/tmp` is an `emptyDir`), `RuntimeDefault` seccomp profile, no service-account token. The
+  namespace enforces the `restricted` Pod Security Standard.
+- **Pipeline gates.** Trivy, Dependency-Check (CVSS ≥ 7) and the SonarQube Quality Gate fail the pipeline.
+  `.trivyignore` documents the only accepted exception (`KSV-0013`, the image placeholder).
+- **Safe destroy.** The ECR repository uses `force_delete = false`, so `terraform destroy` fails while it
+  still contains images.
 
+## License
 
-## Maintainer
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE).
 
-**ElloughWassim**, [github.com/ElloughWassim](https://github.com/ElloughWassim)
+Copyright (c) 2026 ElloughWassim.
+
+## Author
+
+**ElloughWassim** · [github.com/ElloughWassim](https://github.com/ElloughWassim)
