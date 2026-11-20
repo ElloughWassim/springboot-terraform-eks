@@ -191,16 +191,7 @@ These checks need no cloud credentials: Maven verify, Docker build + smoke test,
 
 ## License and attribution
 
-Released under the [MIT License](LICENSE).
 
-This project is an independent re-implementation by ElloughWassim. It was inspired by
-[`iam-vikash/mrdevops_java_app`](https://github.com/iam-vikash/mrdevops_java_app), a tutorial project by Vikash
-whose sample application was itself based on a Spring Cloud Kubernetes demo by Eresh Gorantla. That repository
-has no license, so no code was copied. The application, tests, Dockerfile, manifests, Terraform and pipeline here
-were written from scratch. The `/home/data` endpoint and its response fields deliberately match the original
-behavior, and the configuration key that populates `value` is now called `app.data.value` (originally `app.data.test`).
-
-The Maven Wrapper scripts (`mvnw`, `mvnw.cmd`) are © The Apache Software Foundation, Apache License 2.0.
 
 ## Maintainer
 
