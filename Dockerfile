@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build stage: compile and package with the Maven Wrapper ------------------
-FROM eclipse-temurin:21-jdk-noble AS build
+FROM eclipse-temurin:25-jdk-noble AS build
 WORKDIR /workspace
 # Copy the build definition first so the dependency layer is cached between builds.
 COPY mvnw pom.xml ./
@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -ntp package -DskipTests \
     && java -Djarmode=tools -jar target/app.jar extract --layers --launcher --destination target/extracted
 
 # ---- Runtime stage: JRE only, non-root, layered for fast rebuilds -------------
-FROM eclipse-temurin:21-jre-noble
+FROM eclipse-temurin:25-jre-noble
 WORKDIR /app
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
